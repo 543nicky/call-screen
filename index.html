@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.cdnfonts.com/css/digital-7-mono" rel="stylesheet">
+    
+    <style>
+        body {
+            background-color: #fff3db;
+            font-family: "Noto Sans TC", sans-serif;
+            margin: 0;
+            padding: 0px;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 80px; /* ✅ 電腦版診間間距 */
+            justify-content: center;
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        .clinic-block {
+            display: flex;
+            justify-content: flex-start;
+            gap: 36px;
+            align-items: center;
+            background-color: #fff3db;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 2px solid #eee;
+            width: 280px;
+        }
+
+        .clinic-name {
+            font-size: 24px;
+            color: #a03a84;
+            font-weight: bold;
+            background: white;
+            border-radius: 10px;
+            padding: 6px 12px;
+            flex-shrink: 0;
+        }
+
+        .call-screen {
+            background-color: #2d2d2d;
+            font-size: 48px;
+            font-family: 'Digital-7 Mono', monospace;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 3px solid #ccc;
+            font-weight: normal;
+            color: red;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .notice-text {
+            font-size: 14px;
+            color: #000;
+            text-align: center;
+            line-height: 1;
+            margin-top: 8px; /* ✅ 或 8px、10px，看你想要多近 */
+            font-style: italic;
+        }
+
+        .flash {
+            animation: flashColor 0.5s ease-in-out 4;
+        }
+
+        @keyframes flashColor {
+            0% { color: red; }
+            50% { color: #800000; }
+            100% { color: red; }
+        }
+
+        /* 📱 手機版：一診、二診上下排列 */
+        @media screen and (max-width: 480px) {
+            .row {
+                flex-direction: column;
+                gap: 2px;
+                align-items: center;
+            }
+
+            .clinic-block {
+                width: 90%;
+                max-width: 360px;
+                padding: 8px 12px; /* ✅ 整體外框變小 */
+            }
+
+            .clinic-name {
+                font-size: 16px; /* ✅ 標題字更小 */
+                padding: 4px 12px;
+            }
+
+            .call-screen {
+                font-size: 32px; /* 再小一點以防爆框 */
+                text-align: right;
+                padding: 16px 16px;
+                /* min-width: auto; ✅ 移除 min-width 限制 */
+                width: 100px; /* ✅ 或設定明確寬度 */
+                box-sizing: border-box;
+                overflow: hidden;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="row">
+        <div class="clinic-block">
+            <div class="clinic-name">一診</div>
+            <div class="call-screen" id="call_988">---</div>
+        </div>
+        <div class="clinic-block">
+            <div class="clinic-name">二診</div>
+            <div class="call-screen" id="call_989">---</div>
+        </div>
+    </div>
+
+    <p style="text-align:center; font-size:14px; color:#000; font-style:italic; margin-top:8px;">
+        燈號供參考，如有差異以現場為準
+    </p>
+
+    <script>
+        // ✅ 更新顯示號碼並加入閃爍效果 
+        function updateDisplay(id, num) {
+            const el = document.getElementById("call_" + id);
+            if (el && el.textContent !== num) {
+                el.textContent = num;
+                el.classList.add("flash");
+                setTimeout(() => el.classList.remove("flash"), 2000);
+            }
+        }
+
+        // ✅ 當收到 WebSocket 訊息時處理資料
+        function ws_onmessage(e) {
+            try {
+                var callers = JSON.parse(e.data);
+                callers.forEach(function(caller) {
+                    let nums = JSON.parse(caller.call_nums || "[]");
+                    let id = caller.id;
+                    let num = nums[0] || '---';
+
+                    // ✅ 如果不是即時更新，代表叫號機已離線 → 顯示 ---
+                    if (caller.last_update > 1) {
+                        num = '---';
+                    }
+
+                    if (id == 988 || id == 989) {
+                        updateDisplay(id, num);
+                    }
+                });
+            } catch (err) {
+                console.log("解析錯誤", err);
+            }
+        }
+
+        // ✅ 發送叫號查詢
+        function wsQueryCaller() {
+            var msg = {
+                type: "query",
+                text: "988,989"
+            };
+            ws_socket.send(JSON.stringify(msg));
+        }
+
+        // ✅ WebSocket 初始化相關
+        var ws_socket = null;
+
+        function ws_onopen(e) {
+            wsQueryCaller();
+        }
+
+        function ws_onclose(e) {
+            ws_socket = null;
+        }
+
+        function ws_onerror(e) {
+            ws_socket = null;
+        }
+
+        function chkWsSocket() {
+            try {
+                if ((ws_socket === null) || (ws_socket.readyState === WebSocket.CLOSED)) {
+                    ws_socket = new WebSocket("wss://www.mainpi.com/.ws_mainpi/?token=jrt11:cfb54e07cf7e311f0cea1eb84c30bb1e");
+                    ws_socket.onopen = ws_onopen;
+                    ws_socket.onmessage = ws_onmessage;
+                    ws_socket.onclose = ws_onclose;
+                    ws_socket.onerror = ws_onerror;
+                }
+            } catch (e) {
+                console.log("WebSocket 錯誤:", e.message);
+            }
+        }
+
+        // ✅ 查詢入口函數
+        function QueryCaller() {
+            if (ws_socket !== null) {
+                wsQueryCaller();
+            } else {
+                chkWsSocket();
+            }
+        }
+
+        // ✅ 首次執行 + 每 30 秒查詢
+        QueryCaller();
+        setInterval(QueryCaller, 30000);
+
+        // ✅ 每週一診間名稱切換邏輯
+        function updateDoctorName() {
+            const now = new Date();
+            const day = now.getDay(); // 0=日, 1=一, ..., 6=六
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+
+            // 尋找對應診間的 .clinic-block，根據呼叫區的 ID 判斷診間
+            const blocks = document.querySelectorAll('.clinic-block');
+            blocks.forEach(block => {
+                const callScreen = block.querySelector('.call-screen');
+                const clinicName = block.querySelector('.clinic-name');
+
+                if (!callScreen || !clinicName) return;
+
+                const id = callScreen.id.replace('call_', '');
+
+                if (id === '988') {
+                    // 針對「一診」，星期一下午變更名稱
+                    if (day === 1 && hour >= 13 && (hour < 17 || (hour === 17 && minute < 55))) {
+                        if (!clinicName.textContent.includes('(王醫師)')) {
+                            clinicName.textContent = '一診(王醫師)';
+                        }
+                    } else {
+                        if (clinicName.textContent !== '一診') {
+                            clinicName.textContent = '一診';
+                        }
+                    }
+                }
+                // 如果你未來還要控制其他診間（如 id=989），可以繼續加條件
+            });
+        }
+
+        // 初始化診間名稱切換邏輯
+        document.addEventListener("DOMContentLoaded", function() {
+            updateDoctorName();
+            setInterval(updateDoctorName, 60000); // 每分鐘偵測一次時間
+        });
+    </script>
+</body>
+</html>
